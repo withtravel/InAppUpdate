@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="font_size_big">24sp</dimen>
+    <dimen name="font_size_mid">20sp</dimen>
+    <dimen name="font_size_small">16sp</dimen>
+    <dimen name="font_size_x_small">12sp</dimen>
+
+    <dimen name="title_bar_height">60dp</dimen>
+</resources>
