@@ -21,7 +21,6 @@ import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.ActivityResult.RESULT_IN_APP_UPDATE_FAILED
 import com.google.android.play.core.install.model.AppUpdateType.FLEXIBLE
 import com.google.android.play.core.install.model.AppUpdateType.IMMEDIATE
-import com.google.android.play.core.install.model.UpdateAvailability
 import com.google.android.play.core.install.model.UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
 import com.google.android.play.core.install.model.UpdateAvailability.UPDATE_AVAILABLE
 import com.google.android.play.core.ktx.AppUpdateResult
@@ -82,7 +81,7 @@ class InAppActivity : AppCompatActivity() {
                             InAppActivity::class.simpleName,
                             "failed to update the app, about to finish. result code -> $resultCode"
                     )
-                    setResult(resultCode)
+                    setResult(RESULT_CANCELED)
                     finish()
                 }
             }
