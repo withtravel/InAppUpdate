@@ -15,11 +15,15 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
+import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.install.model.ActivityResult.RESULT_IN_APP_UPDATE_FAILED
 import com.google.android.play.core.install.model.AppUpdateType.FLEXIBLE
 import com.google.android.play.core.install.model.AppUpdateType.IMMEDIATE
 import com.google.android.play.core.install.model.UpdateAvailability
+import com.google.android.play.core.install.model.UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
+import com.google.android.play.core.install.model.UpdateAvailability.UPDATE_AVAILABLE
 import com.google.android.play.core.ktx.AppUpdateResult
 import kotlinx.android.synthetic.main.activity_in_app_update.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -34,8 +38,8 @@ class InAppActivity : AppCompatActivity() {
     private lateinit var appUpdateManager: AppUpdateManager
     private val updateViewModel: UpdateViewModel by viewModels {
         UpdateViewModelFactory(
-            this,
-            AppUpdateManagerFactory.create(this)
+                this,
+                AppUpdateManagerFactory.create(this)
         )
     }
 
@@ -43,8 +47,17 @@ class InAppActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_in_app_update)
         appUpdateManager = AppUpdateManagerFactory.create(this)
-        addUpdateViewModelObservers()
-        Log.e(InAppActivity::class.java.simpleName, "onCreate")
+        // update immediately if update in progress
+        if (appUpdateInfo?.updateAvailability() == DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+            appUpdateManager.startUpdateFlowForResult(
+                    requireNotNull(appUpdateInfo),
+                    IMMEDIATE,
+                    this@InAppActivity,
+                    UPDATE_CONFIRMATION_REQ_CODE
+            )
+        } else {
+            addUpdateViewModelObservers()
+        }
     }
 
     override fun onBackPressed() {
@@ -55,19 +68,19 @@ class InAppActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         Log.e(
-            InAppActivity::class.simpleName,
-            "onActivityResult. req code -> $requestCode result code -> $resultCode"
+                InAppActivity::class.simpleName,
+                "onActivityResult. req code -> $requestCode result code -> $resultCode"
         )
         if (requestCode == UPDATE_CONFIRMATION_REQ_CODE) {
             when (resultCode) {
                 Activity.RESULT_OK -> {
                     // The user accepted the request to update
                 }
-                com.google.android.play.core.install.model.ActivityResult.RESULT_IN_APP_UPDATE_FAILED,
+                RESULT_IN_APP_UPDATE_FAILED,
                 Activity.RESULT_CANCELED -> {
                     Log.e(
-                        InAppActivity::class.simpleName,
-                        "failed to update the app, about to finish. result code -> $resultCode"
+                            InAppActivity::class.simpleName,
+                            "failed to update the app, about to finish. result code -> $resultCode"
                     )
                     setResult(resultCode)
                     finish()
@@ -95,12 +108,12 @@ class InAppActivity : AppCompatActivity() {
             }
             is AppUpdateResult.InProgress -> {
                 val updateProgress: Int =
-                    if (updateResult.installState.totalBytesToDownload() == 0L) {
-                        0
-                    } else {
-                        (updateResult.installState.bytesDownloaded() * 100 /
-                                updateResult.installState.totalBytesToDownload()).toInt()
-                    }
+                        if (updateResult.installState.totalBytesToDownload() == 0L) {
+                            0
+                        } else {
+                            (updateResult.installState.bytesDownloaded() * 100 /
+                                    updateResult.installState.totalBytesToDownload()).toInt()
+                        }
                 progressBar.progress = updateProgress
                 text_message.text = getString(R.string.update_message_downloading, updateProgress)
                 if (button_positive.visibility != View.GONE) button_positive.visibility = View.GONE
@@ -108,12 +121,7 @@ class InAppActivity : AppCompatActivity() {
             }
             is AppUpdateResult.Downloaded -> {
                 text_message.text = getString(R.string.update_message_downloaded)
-                with(button_positive) {
-                    visibility = View.VISIBLE
-                    setOnClickListener {
-                        updateViewModel.invokeUpdate()
-                    }
-                }
+                updateViewModel.invokeUpdate()
             }
         }
     }
@@ -121,9 +129,9 @@ class InAppActivity : AppCompatActivity() {
     private fun addUpdateViewModelObservers() {
         with(updateViewModel) {
             updateStatus.observe(
-                this@InAppActivity, Observer { updateResult: AppUpdateResult ->
-                    pendingUpdate(updateResult)
-                })
+                    this@InAppActivity, Observer { updateResult: AppUpdateResult ->
+                pendingUpdate(updateResult)
+            })
             events.onEach { event ->
                 Log.e(InAppActivity::class.simpleName, "addUpdateViewModelObservers() -> $event")
                 when (event) {
@@ -137,16 +145,16 @@ class InAppActivity : AppCompatActivity() {
                     }
                     is Event.StartUpdateEvent -> {
                         val updateType =
-                            if (event.immediate) {
-                                IMMEDIATE
-                            } else {
-                                FLEXIBLE
-                            }
+                                if (event.immediate) {
+                                    IMMEDIATE
+                                } else {
+                                    FLEXIBLE
+                                }
                         appUpdateManager.startUpdateFlowForResult(
-                            event.updateInfo,
-                            updateType,
-                            this@InAppActivity,
-                            UPDATE_CONFIRMATION_REQ_CODE
+                                event.updateInfo,
+                                updateType,
+                                this@InAppActivity,
+                                UPDATE_CONFIRMATION_REQ_CODE
                         )
                     }
                     else -> throw IllegalStateException("Event type not handled: $event")
@@ -160,25 +168,35 @@ class InAppActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val UPDATE_CONFIRMATION_REQ_CODE = 1
+        private var appUpdateInfo: AppUpdateInfo? = null
+        private const val UPDATE_CONFIRMATION_REQ_CODE = 1
         private val contract = ActivityResultContracts.StartActivityForResult()
+
         fun getIntent(context: Context) = Intent(context, InAppActivity::class.java)
 
         fun registerCallback(
-            component: ComponentActivity,
-            callback: (res: ActivityResult) -> Unit
+                component: ComponentActivity,
+                callback: (res: ActivityResult) -> Unit
         ): ActivityResultLauncher<Intent> {
             return component.registerForActivityResult(contract, callback)
         }
 
         @ExperimentalCoroutinesApi
         suspend fun checkUpdateAvailable(context: Context) =
-            suspendCancellableCoroutine<Boolean> { continuation ->
-                // Checks that the platform will allow the specified type of update.
-                AppUpdateManagerFactory.create(context).appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
-                    continuation.resume(
-                        (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE))
+                suspendCancellableCoroutine<Boolean> { continuation ->
+                    // Checks that the platform will allow the specified type of update.
+                    AppUpdateManagerFactory.create(context).appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
+                        this.appUpdateInfo = appUpdateInfo
+                        appUpdateInfo.updateAvailability()
+                        val res = when (appUpdateInfo.updateAvailability()) {
+                            DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS,
+                            UPDATE_AVAILABLE -> {
+                                true
+                            }
+                            else -> false
+                        }
+                        continuation.resume(res)
+                    }
                 }
-            }
     }
 }
